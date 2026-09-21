@@ -1,6 +1,6 @@
-# ShadeCanopy-01 · 分区气候日志与轮灌计划
+# ShadeCanopy-01 · 分区气候日志、轮灌计划与含水抽检
 
-温室「分区气候日志与轮灌计划」全栈种子项目（非考勤 OA、非库存）。
+温室「分区气候日志、轮灌计划与土壤含水抽检」全栈种子项目（非考勤 OA、非库存）。
 
 ## 技术栈
 
@@ -25,7 +25,7 @@
 | `admin` | `123456` | admin（管理员，可进 Django Admin） |
 | `grower` | `123456` | grower（种植员） |
 
-启动时 `entrypoint.sh` 会执行 `migrate` + `seed_data` 自动写入账号与示例业务数据。
+启动时 `entrypoint.sh` 会执行 `migrate` + `seed_data` 自动写入账号与示例业务数据。种子含两个含水抽检批次：一号棚 `SM-0901`（两个测点，可封）与二号棚 `SM-0901`（一个测点，不可封），演示相同批次号跨温室复用且测点不串棚。
 
 ## 快速启动
 
@@ -49,7 +49,16 @@ docker compose down
 3. **Zone**：greenhouseId / zoneCode / cropName / status(`idle|growing|fallow`)；同温室 zoneCode 唯一
 4. **ClimateLog**：zoneId / recordedAt / tempC / humidityPct / parUmol / co2Ppm；**humidityPct ∈ [20, 100]**
 5. **IrrigationCycle**：zoneId / startAt / durationMin / waterLiters / status(`scheduled|running|done|skipped`)
-6. **Dashboard**：温室数、growing 分区数、近 24h 气候日志数、今日 scheduled 轮灌数 → `GET /api/dashboard/`
+6. **MoistureBatch（含水抽检批次）**：greenhouseId / batchNo / openDate / sealedAt(可空)
+   - 批次挂温室，**同温室内 batchNo 唯一**，不同温室允许相同批次号
+   - openDate 按**东八区自然日**（`Asia/Shanghai`），缺省取开批当天
+7. **MoistureReading（含水测点）**：batchId / zoneId / moisturePct / sampledAt
+   - 测点挂批次，**zoneId 必须属于批次所在温室**（不得串棚）
+   - **moisturePct 为 5～95 的整数**
+   - 未封批次内同一分区只许一个测点；**封批后禁止加点**（409）
+8. **封批**：`POST /api/moisture-batches/{id}/seal/` —— 箱内测点 **≥ 2** 方可封批，否则返回 **409** 且 `sealedAt` 仍为空
+9. **对账**：`GET /api/moisture-batches/reconcile/?greenhouseId=` —— 按温室给出批次数与点数（汇总口径与明细口径），`batchDiff` / `pointDiff` 均为 0 即平账
+10. **Dashboard**：温室数、growing 分区数、近 24h 气候日志数、今日 scheduled 轮灌数 → `GET /api/dashboard/`
 
 ## API 一览
 
@@ -62,6 +71,10 @@ docker compose down
 | CRUD | `/api/zones/?greenhouseId=&status=` |
 | CRUD | `/api/climate-logs/?zoneId=` |
 | CRUD | `/api/irrigation-cycles/?zoneId=&status=` |
+| CRUD | `/api/moisture-batches/?greenhouseId=&sealed=` |
+| POST | `/api/moisture-batches/{id}/seal/` |
+| GET | `/api/moisture-batches/reconcile/?greenhouseId=` |
+| CRUD | `/api/moisture-readings/?batchId=&zoneId=&greenhouseId=` |
 | GET | `/api/dashboard/` |
 
 字段对外使用 camelCase（如 `areaM2`、`zoneCode`、`humidityPct`）。
@@ -104,7 +117,7 @@ ShadeCanopy-01/
 │   ├── manage.py
 │   ├── config/            # settings / urls
 │   ├── accounts/          # 自定义 User + role
-│   └── core/              # 温室/分区/气候/轮灌 + seed_data
+│   └── core/              # 温室/分区/气候/轮灌/含水抽检 + seed_data
 └── frontend/
     ├── Dockerfile
     ├── nginx.conf         # 静态资源 + /api 反代

@@ -5,7 +5,14 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from core.models import ClimateLog, Greenhouse, IrrigationCycle, Zone
+from core.models import (
+    ClimateLog,
+    Greenhouse,
+    IrrigationCycle,
+    MoistureBatch,
+    MoistureReading,
+    Zone,
+)
 
 User = get_user_model()
 
@@ -162,9 +169,40 @@ class Command(BaseCommand):
             ]
         )
 
+        # 含水抽检：两温室允许相同批次号；一号棚两点（可封），二号棚一点（不可封）
+        mb1 = MoistureBatch.objects.create(
+            greenhouse=g1, batch_no="SM-0901", open_date=timezone.localdate()
+        )
+        mb2 = MoistureBatch.objects.create(
+            greenhouse=g2, batch_no="SM-0901", open_date=timezone.localdate()
+        )
+        MoistureReading.objects.bulk_create(
+            [
+                MoistureReading(
+                    batch=mb1,
+                    zone=z1,
+                    moisture_pct=42,
+                    sampled_at=now - timedelta(hours=1),
+                ),
+                MoistureReading(
+                    batch=mb1,
+                    zone=z2,
+                    moisture_pct=55,
+                    sampled_at=now - timedelta(minutes=40),
+                ),
+                MoistureReading(
+                    batch=mb2,
+                    zone=z4,
+                    moisture_pct=61,
+                    sampled_at=now - timedelta(minutes=30),
+                ),
+            ]
+        )
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"种子完成：温室 {Greenhouse.objects.count()}，分区 {Zone.objects.count()}，"
-                f"气候 {ClimateLog.objects.count()}，轮灌 {IrrigationCycle.objects.count()}"
+                f"气候 {ClimateLog.objects.count()}，轮灌 {IrrigationCycle.objects.count()}，"
+                f"抽检批次 {MoistureBatch.objects.count()}，测点 {MoistureReading.objects.count()}"
             )
         )

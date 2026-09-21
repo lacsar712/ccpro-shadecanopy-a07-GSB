@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from .models import ClimateLog, Greenhouse, IrrigationCycle, Zone
+from .models import (
+    ClimateLog,
+    Greenhouse,
+    IrrigationCycle,
+    MoistureBatch,
+    MoistureReading,
+    Zone,
+)
 
 
 @admin.register(Greenhouse)
@@ -26,3 +33,16 @@ class ClimateLogAdmin(admin.ModelAdmin):
 class IrrigationCycleAdmin(admin.ModelAdmin):
     list_display = ("id", "zone", "start_at", "duration_min", "water_liters", "status")
     list_filter = ("status", "zone")
+
+
+@admin.register(MoistureBatch)
+class MoistureBatchAdmin(admin.ModelAdmin):
+    list_display = ("id", "greenhouse", "batch_no", "open_date", "sealed_at")
+    list_filter = ("greenhouse", "open_date")
+    search_fields = ("batch_no",)
+
+
+@admin.register(MoistureReading)
+class MoistureReadingAdmin(admin.ModelAdmin):
+    list_display = ("id", "batch", "zone", "moisture_pct", "sampled_at")
+    list_filter = ("batch", "zone")
