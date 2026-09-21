@@ -100,3 +100,61 @@ class IrrigationCycle(models.Model):
 
     def __str__(self):
         return f"Irrig@{self.zone_id} {self.start_at} ({self.status})"
+
+
+class MoistureBatch(models.Model):
+    """土壤含水抽检批次：挂在温室下；同温室批次号唯一，跨温室可重复。"""
+
+    greenhouse = models.ForeignKey(
+        Greenhouse, on_delete=models.CASCADE, related_name="moisture_batches"
+    )
+    batch_code = models.CharField(max_length=40)
+    # 开批日按东八区（settings.TIME_ZONE = Asia/Shanghai）自然日记录
+    opened_on = models.DateField()
+    closed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-opened_on", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["greenhouse", "batch_code"],
+                name="uniq_moisture_batch_code_per_greenhouse",
+            )
+        ]
+
+    @property
+    def is_closed(self):
+        return self.closed_at is not None
+
+    def __str__(self):
+        return f"MoistureBatch {self.greenhouse_id}/{self.batch_code}"
+
+
+class MoistureSample(models.Model):
+    """批次抽检测点：挂在批次下，分区必须属于批次所属温室。"""
+
+    batch = models.ForeignKey(
+        MoistureBatch, on_delete=models.CASCADE, related_name="samples"
+    )
+    zone = models.ForeignKey(
+        Zone, on_delete=models.CASCADE, related_name="moisture_samples"
+    )
+    moisture_pct = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(5), MaxValueValidator(95)]
+    )
+    sampled_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-sampled_at", "-id"]
+        constraints = [
+            # 封批后禁止加点，因此一个批次内同一分区至多一点即可覆盖业务规则
+            models.UniqueConstraint(
+                fields=["batch", "zone"],
+                name="uniq_moisture_zone_per_batch",
+            )
+        ]
+
+    def __str__(self):
+        return f"Moisture@{self.zone_id} {self.moisture_pct}%"

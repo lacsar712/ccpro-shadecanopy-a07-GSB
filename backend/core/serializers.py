@@ -1,6 +1,13 @@
 from rest_framework import serializers
 
-from .models import ClimateLog, Greenhouse, IrrigationCycle, Zone
+from .models import (
+    ClimateLog,
+    Greenhouse,
+    IrrigationCycle,
+    MoistureBatch,
+    MoistureSample,
+    Zone,
+)
 
 
 class GreenhouseSerializer(serializers.ModelSerializer):
@@ -142,3 +149,96 @@ class IrrigationCycleSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
+
+
+class MoistureBatchSerializer(serializers.ModelSerializer):
+    greenhouseId = serializers.PrimaryKeyRelatedField(
+        source="greenhouse", queryset=Greenhouse.objects.all()
+    )
+    batchCode = serializers.CharField(source="batch_code")
+    openedOn = serializers.DateField(source="opened_on")
+    closedAt = serializers.DateTimeField(source="closed_at", read_only=True)
+    greenhouseName = serializers.CharField(source="greenhouse.name", read_only=True)
+    sampleCount = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MoistureBatch
+        fields = (
+            "id",
+            "greenhouseId",
+            "greenhouseName",
+            "batchCode",
+            "openedOn",
+            "closedAt",
+            "sampleCount",
+            "created_at",
+        )
+        read_only_fields = ("id", "greenhouseName", "closedAt", "sampleCount", "created_at")
+
+    def get_sampleCount(self, obj):
+        if hasattr(obj, "sample_count"):
+            return obj.sample_count
+        return obj.samples.count()
+
+    def validate(self, attrs):
+        greenhouse = attrs.get("greenhouse") or getattr(self.instance, "greenhouse", None)
+        batch_code = attrs.get("batch_code") or getattr(self.instance, "batch_code", None)
+        if greenhouse and batch_code:
+            qs = MoistureBatch.objects.filter(greenhouse=greenhouse, batch_code=batch_code)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    {"batchCode": "同一温室内批次号必须唯一（跨温室可重复）"}
+                )
+        return attrs
+
+
+class MoistureSampleSerializer(serializers.ModelSerializer):
+    batchId = serializers.PrimaryKeyRelatedField(
+        source="batch", queryset=MoistureBatch.objects.all()
+    )
+    zoneId = serializers.PrimaryKeyRelatedField(
+        source="zone", queryset=Zone.objects.all()
+    )
+    moisturePct = serializers.IntegerField(source="moisture_pct", min_value=5, max_value=95)
+    sampledAt = serializers.DateTimeField(source="sampled_at")
+    zoneCode = serializers.CharField(source="zone.zone_code", read_only=True)
+    greenhouseName = serializers.CharField(
+        source="zone.greenhouse.name", read_only=True
+    )
+
+    class Meta:
+        model = MoistureSample
+        fields = (
+            "id",
+            "batchId",
+            "zoneId",
+            "zoneCode",
+            "greenhouseName",
+            "moisturePct",
+            "sampledAt",
+            "created_at",
+        )
+        read_only_fields = ("id", "zoneCode", "greenhouseName", "created_at")
+
+    def validate(self, attrs):
+        batch = attrs.get("batch") or getattr(self.instance, "batch", None)
+        zone = attrs.get("zone") or getattr(self.instance, "zone", None)
+        if batch and zone:
+            if zone.greenhouse_id != batch.greenhouse_id:
+                raise serializers.ValidationError(
+                    {"zoneId": "分区不属于该批次所属温室，不得串棚"}
+                )
+            if batch.closed_at is not None:
+                raise serializers.ValidationError(
+                    {"batchId": "批次已封批，禁止再添加测点"}
+                )
+            qs = MoistureSample.objects.filter(batch=batch, zone=zone)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    {"zoneId": "未封批次内同一分区只允许一个测点"}
+                )
+        return attrs

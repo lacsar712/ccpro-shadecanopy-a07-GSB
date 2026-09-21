@@ -5,7 +5,14 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from core.models import ClimateLog, Greenhouse, IrrigationCycle, Zone
+from core.models import (
+    ClimateLog,
+    Greenhouse,
+    IrrigationCycle,
+    MoistureBatch,
+    MoistureSample,
+    Zone,
+)
 
 User = get_user_model()
 
@@ -44,6 +51,7 @@ class Command(BaseCommand):
 
         if Greenhouse.objects.exists():
             self.stdout.write("温室数据已存在，跳过业务种子写入。")
+            self.seed_moisture_batches()
             return
 
         g1 = Greenhouse.objects.create(
@@ -166,5 +174,70 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 f"种子完成：温室 {Greenhouse.objects.count()}，分区 {Zone.objects.count()}，"
                 f"气候 {ClimateLog.objects.count()}，轮灌 {IrrigationCycle.objects.count()}"
+            )
+        )
+
+        self.seed_moisture_batches()
+
+    def seed_moisture_batches(self):
+        """含水抽检种子幂等写入：同号批次两棚各一，一个可封一个不可封。"""
+        g1 = Greenhouse.objects.filter(name="东坡一号棚").first()
+        g2 = Greenhouse.objects.filter(name="西篱二号棚").first()
+        if g1 is None or g2 is None:
+            self.stdout.write("缺少示范温室，跳过含水抽检种子。")
+            return
+        z1 = Zone.objects.filter(greenhouse=g1, zone_code="A-01").first()
+        z2 = Zone.objects.filter(greenhouse=g1, zone_code="A-02").first()
+        z4 = Zone.objects.filter(greenhouse=g2, zone_code="B-01").first()
+        if z1 is None or z2 is None or z4 is None:
+            self.stdout.write("缺少示范分区，跳过含水抽检种子。")
+            return
+
+        now = timezone.now()
+        opened_on = timezone.localdate()
+        seeding_code = "SM-20260921-01"
+
+        # 东坡一号棚同号批次：两个测点，可封批
+        batch_seedable, created = MoistureBatch.objects.get_or_create(
+            greenhouse=g1,
+            batch_code=seeding_code,
+            defaults={"opened_on": opened_on},
+        )
+        if created:
+            MoistureSample.objects.bulk_create(
+                [
+                    MoistureSample(
+                        batch=batch_seedable,
+                        zone=z1,
+                        moisture_pct=42,
+                        sampled_at=now - timedelta(minutes=40),
+                    ),
+                    MoistureSample(
+                        batch=batch_seedable,
+                        zone=z2,
+                        moisture_pct=57,
+                        sampled_at=now - timedelta(minutes=30),
+                    ),
+                ]
+            )
+
+        # 西篱二号棚同号批次：仅一个测点，不可封批（封批接口应返回 409）
+        batch_short, created = MoistureBatch.objects.get_or_create(
+            greenhouse=g2,
+            batch_code=seeding_code,
+            defaults={"opened_on": opened_on},
+        )
+        if created:
+            MoistureSample.objects.create(
+                batch=batch_short,
+                zone=z4,
+                moisture_pct=38,
+                sampled_at=now - timedelta(minutes=20),
+            )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"含水抽检：批次 {MoistureBatch.objects.count()}，"
+                f"测点 {MoistureSample.objects.count()}（同号批次 {seeding_code} 两棚各一）"
             )
         )
